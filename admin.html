@@ -10,7 +10,145 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
         import { getDatabase, ref, push, onValue, remove, update, get, set } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
-        // Your web app's Firebase configuration
+        // 設置全局函數
+        window.displayMenu = function() {
+            const menuItems = document.getElementById('menuItems');
+            const menuRef = ref(database, 'menu');
+            
+            onValue(menuRef, (snapshot) => {
+                const menu = snapshot.val() || {};
+                
+                menuItems.innerHTML = Object.entries(menu).map(([key, item]) => `
+                    <div class="menu-item ${item.soldOut ? 'sold-out' : ''}">
+                        <p>${item.name} (${item.category})</p>
+                        <div style="position: relative;">
+                            <img src="${item.image}" alt="${item.name}">
+                            ${item.soldOut ? '<div class="sold-out-label">售罄</div>' : ''}
+                        </div>
+                        <button onclick="toggleSoldOut('${key}')">
+                            ${item.soldOut ? '恢復供應' : '標記售罄'}
+                        </button>
+                        <button onclick="toggleEdit('${key}')">修改</button>
+                        <button onclick="deleteMenuItem('${key}')">刪除</button>
+                        
+                        <div id="edit-${key}" class="edit-form">
+                            <input type="text" id="edit-name-${key}" value="${item.name}">
+                            <input type="file" id="edit-image-${key}" accept="image/*">
+                            <select id="edit-category-${key}">
+                                <optgroup label="酒精類飲品">
+                                    <option value="清酒" ${item.category === '清酒' ? 'selected' : ''}>清酒</option>
+                                    <option value="啤酒" ${item.category === '啤酒' ? 'selected' : ''}>啤酒</option>
+                                    <option value="果酒" ${item.category === '果酒' ? 'selected' : ''}>果酒</option>
+                                    <option value="威士忌" ${item.category === '威士忌' ? 'selected' : ''}>威士忌</option>
+                                    <option value="紅白酒" ${item.category === '紅白酒' ? 'selected' : ''}>紅白酒</option>
+                                </optgroup>
+                                <option value="無酒精類飲品" ${item.category === '無酒精類飲品' ? 'selected' : ''}>無酒精類飲品</option>
+                                <option value="食物" ${item.category === '食物' ? 'selected' : ''}>食物</option>
+                            </select>
+                            <button onclick="saveEdit('${key}')">保存</button>
+                        </div>
+                    </div>
+                `).join('');
+            });
+        }
+
+        window.displayOrders = function() {
+            const orderList = document.getElementById('orderList');
+            onValue(ref(database, 'orders'), (snapshot) => {
+                const orders = snapshot.val() || {};
+                orderList.innerHTML = Object.entries(orders).map(([key, order]) => `
+                    <div class="order-item">
+                        <p>訂單時間：${new Date(order.timestamp).toLocaleString()}</p>
+                        <p>品項：${order.items.map(item => `${item.name} x ${item.quantity}`).join(', ')}</p>
+                    </div>
+                `).join('');
+            });
+        }
+
+        window.addMenuItem = function() {
+            const name = document.getElementById('itemName').value;
+            const imageInput = document.getElementById('itemImage');
+            const category = document.getElementById('itemCategory').value;
+
+            if (name && imageInput.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function() {
+                    const menuItem = {
+                        name,
+                        image: reader.result,
+                        category
+                    };
+                    
+                    const menuRef = ref(database, 'menu');
+                    push(menuRef, menuItem)
+                        .then(() => {
+                            alert('商品新增成功！');
+                            document.getElementById('itemName').value = '';
+                            document.getElementById('itemImage').value = '';
+                            document.getElementById('imagePreview').style.display = 'none';
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            alert('新增失敗：' + error.message);
+                        });
+                }
+                reader.readAsDataURL(imageInput.files[0]);
+            } else {
+                alert('請填寫商品名稱並上傳圖片');
+            }
+        }
+
+        window.deleteMenuItem = function(key) {
+            if (confirm('確定要刪除這個品項嗎？')) {
+                const itemRef = ref(database, 'menu/' + key);
+                remove(itemRef);
+            }
+        }
+
+        window.toggleSoldOut = function(key) {
+            const itemRef = ref(database, 'menu/' + key);
+            get(itemRef).then((snapshot) => {
+                const item = snapshot.val();
+                if (item) {
+                    item.soldOut = !item.soldOut;
+                    update(itemRef, item);
+                }
+            });
+        }
+
+        window.saveEdit = function(key) {
+            const newName = document.getElementById(`edit-name-${key}`).value;
+            const imageInput = document.getElementById(`edit-image-${key}`);
+            const newCategory = document.getElementById(`edit-category-${key}`).value;
+            
+            const itemRef = ref(database, 'menu/' + key);
+            get(itemRef).then((snapshot) => {
+                const item = snapshot.val();
+                if (item) {
+                    item.name = newName;
+                    item.category = newCategory;
+                    
+                    if (imageInput.files[0]) {
+                        const reader = new FileReader();
+                        reader.onload = function() {
+                            item.image = reader.result;
+                            update(itemRef, item);
+                        }
+                        reader.readAsDataURL(imageInput.files[0]);
+                    } else {
+                        update(itemRef, item);
+                    }
+                }
+            });
+        }
+
+        window.clearOrders = function() {
+            if (confirm('確定要清除所有訂單記錄嗎？')) {
+                set(ref(database, 'orders'), null);
+            }
+        }
+
+        // Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyAqy_E8fom2jub9PvDuAOGCx38qCYbR7o0",
             authDomain: "drink-order-system-23e1c.firebaseapp.com",
@@ -24,6 +162,20 @@
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const database = getDatabase(app);
+        window.database = database;
+        window.ref = ref;
+        window.onValue = onValue;
+        window.push = push;
+        window.remove = remove;
+        window.update = update;
+        window.get = get;
+        window.set = set;
+
+        // 頁面載入時執行
+        window.addEventListener('DOMContentLoaded', () => {
+            displayOrders();
+            displayMenu();
+        });
     </script>
     <style>
         body {
@@ -154,150 +306,6 @@
             if (file) {
                 reader.readAsDataURL(file);
             }
-        }
-
-        // 新增菜單項目
-        function addMenuItem() {
-            const name = document.getElementById('itemName').value;
-            const imageInput = document.getElementById('itemImage');
-            const category = document.getElementById('itemCategory').value;
-
-            if (name && imageInput.files[0]) {
-                const reader = new FileReader();
-                reader.onload = function() {
-                    const menuItem = {
-                        name,
-                        image: reader.result,
-                        category
-                    };
-                    
-                    push(ref(database, 'menu'), menuItem);
-                    
-                    document.getElementById('itemName').value = '';
-                    document.getElementById('itemImage').value = '';
-                    document.getElementById('imagePreview').style.display = 'none';
-                }
-                reader.readAsDataURL(imageInput.files[0]);
-            }
-        }
-
-        // 顯示菜單
-        function displayMenu() {
-            const menuItems = document.getElementById('menuItems');
-            
-            onValue(ref(database, 'menu'), (snapshot) => {
-                const menu = snapshot.val() || {};
-                
-                menuItems.innerHTML = Object.entries(menu).map(([key, item]) => `
-                    <div class="menu-item ${item.soldOut ? 'sold-out' : ''}">
-                        <p>${item.name} (${item.category})</p>
-                        <div style="position: relative;">
-                            <img src="${item.image}" alt="${item.name}">
-                            ${item.soldOut ? '<div class="sold-out-label">售罄</div>' : ''}
-                        </div>
-                        <button onclick="toggleSoldOut('${key}')">
-                            ${item.soldOut ? '恢復供應' : '標記售罄'}
-                        </button>
-                        <button onclick="toggleEdit('${key}')">修改</button>
-                        <button onclick="deleteMenuItem('${key}')">刪除</button>
-                        
-                        <div id="edit-${key}" class="edit-form">
-                            <input type="text" id="edit-name-${key}" value="${item.name}">
-                            <input type="file" id="edit-image-${key}" accept="image/*">
-                            <select id="edit-category-${key}">
-                                <optgroup label="酒精類飲品">
-                                    <option value="清酒" ${item.category === '清酒' ? 'selected' : ''}>清酒</option>
-                                    <option value="啤酒" ${item.category === '啤酒' ? 'selected' : ''}>啤酒</option>
-                                    <option value="果酒" ${item.category === '果酒' ? 'selected' : ''}>果酒</option>
-                                    <option value="威士忌" ${item.category === '威士忌' ? 'selected' : ''}>威士忌</option>
-                                    <option value="紅白酒" ${item.category === '紅白酒' ? 'selected' : ''}>紅白酒</option>
-                                </optgroup>
-                                <option value="無酒精類飲品" ${item.category === '無酒精類飲品' ? 'selected' : ''}>無酒精類飲品</option>
-                                <option value="食物" ${item.category === '食物' ? 'selected' : ''}>食物</option>
-                            </select>
-                            <button onclick="saveEdit('${key}')">保存</button>
-                        </div>
-                    </div>
-                `).join('');
-            });
-        }
-
-        // 顯示訂單列表
-        function displayOrders() {
-            const orderList = document.getElementById('orderList');
-            onValue(ref(database, 'orders'), (snapshot) => {
-                const orders = snapshot.val() || {};
-                orderList.innerHTML = Object.entries(orders).map(([key, order]) => `
-                    <div class="order-item">
-                        <p>訂單時間：${new Date(order.timestamp).toLocaleString()}</p>
-                        <p>品項：${order.items.map(item => `${item.name} x ${item.quantity}`).join(', ')}</p>
-                    </div>
-                `).join('');
-            });
-        }
-
-        // 刪除菜單項目
-        function deleteMenuItem(key) {
-            if (confirm('確定要刪除這個品項嗎？')) {
-                remove(ref(database, 'menu/' + key));
-            }
-        }
-
-        // 清除所有訂單
-        function clearOrders() {
-            if (confirm('確定要清除所有訂單記錄嗎？')) {
-                set(ref(database, 'orders'), null);
-            }
-        }
-
-        // 頁面載入時顯示訂單和菜單
-        displayOrders();
-        displayMenu();
-
-        // 每 30 秒更新一次訂單列表
-        setInterval(displayOrders, 30000);
-
-        // 切換售罄狀態
-        function toggleSoldOut(key) {
-            get(ref(database, 'menu/' + key)).then((snapshot) => {
-                const item = snapshot.val();
-                if (item) {
-                    item.soldOut = !item.soldOut;
-                    update(ref(database, 'menu/' + key), item);
-                }
-            });
-        }
-
-        // 顯示/隱藏編輯表單
-        function toggleEdit(key) {
-            const editForm = document.getElementById(`edit-${key}`);
-            editForm.style.display = editForm.style.display === 'none' ? 'block' : 'none';
-        }
-
-        // 保存編輯
-        function saveEdit(key) {
-            const newName = document.getElementById(`edit-name-${key}`).value;
-            const imageInput = document.getElementById(`edit-image-${key}`);
-            const newCategory = document.getElementById(`edit-category-${key}`).value;
-            
-            get(ref(database, 'menu/' + key)).then((snapshot) => {
-                const item = snapshot.val();
-                if (item) {
-                    item.name = newName;
-                    item.category = newCategory;
-                    
-                    if (imageInput.files[0]) {
-                        const reader = new FileReader();
-                        reader.onload = function() {
-                            item.image = reader.result;
-                            update(ref(database, 'menu/' + key), item);
-                        }
-                        reader.readAsDataURL(imageInput.files[0]);
-                    } else {
-                        update(ref(database, 'menu/' + key), item);
-                    }
-                }
-            });
         }
     </script>
 </body>
