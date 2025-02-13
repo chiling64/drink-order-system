@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>點餐系統</title>
+    <script type="module">
+        // Import the functions you need from the SDKs you need
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+        import { getDatabase, ref, push, onValue, set } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
+
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyAqy_E8fom2jub9PvDuAOGCx38qCYbR7o0",
+            authDomain: "drink-order-system-23e1c.firebaseapp.com",
+            databaseURL: "https://drink-order-system-23e1c-default-rtdb.firebaseio.com",
+            projectId: "drink-order-system-23e1c",
+            storageBucket: "drink-order-system-23e1c.firebasestorage.app",
+            messagingSenderId: "544094379227",
+            appId: "1:544094379227:web:01af59a8371222e85300fe"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
+        // 將 Firebase 變數設為全局變數
+        window.database = database;
+        window.ref = ref;
+        window.push = push;
+        window.set = set;
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .menu-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .menu-items {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 150px;
+        }
+
+        .menu-item {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .menu-item img {
+            width: 150px;  /* 固定寬度 */
+            height: 150px; /* 固定高度 */
+            object-fit: cover; /* 保持圖片比例並填滿容器 */
+            border-radius: 8px;
+        }
+
+        .cart {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            padding: 20px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+
+        .cart button {
+            min-height: 44px;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .quantity-control {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+        }
+
+        .quantity-btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            min-width: 44px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .menu-item.sold-out img {
+            filter: grayscale(100%);
+            opacity: 0.7;
+        }
+
+        .sold-out-label {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="menu-container">
+        <h1>點餐系統</h1>
+        
+        <h2>酒精類飲品</h2>
+        <h3>清酒</h3>
+        <div class="menu-items" id="sake-container"></div>
+        <h3>啤酒</h3>
+        <div class="menu-items" id="beer-container"></div>
+        <h3>果酒</h3>
+        <div class="menu-items" id="fruit-wine-container"></div>
+        <h3>威士忌</h3>
+        <div class="menu-items" id="whisky-container"></div>
+        <h3>紅白酒</h3>
+        <div class="menu-items" id="wine-container"></div>
+        
+        <h2>無酒精類飲品</h2>
+        <div class="menu-items" id="drinks-container">
+            <!-- 飲品項目會在這裡動態載入 -->
+        </div>
+
+        <h2>食物</h2>
+        <div class="menu-items" id="food-container">
+            <!-- 食物項目會在這裡動態載入 -->
+        </div>
+
+        <div class="cart">
+            <h2>購物車</h2>
+            <div id="cart-items"></div>
+            <p>總計: NT$ <span id="total">0</span></p>
+            <button onclick="submitOrder()">送出訂單</button>
+        </div>
+    </div>
+
+    <script>
+        let cart = [];
+        let total = 0;
+        let quantities = {};
+
+        // 當訂單送出時，將訂單資訊傳送到管理頁面
+        function submitOrder() {
+            if (cart.length === 0) {
+                alert('購物車是空的！');
+                return;
+            }
+
+            const order = {
+                items: cart,
+                total: total,
+                timestamp: new Date().toISOString()
+            };
+
+            // 使用 Firebase 保存訂單
+            push(ref(database, 'orders'), order);
+
+            alert('訂單已送出！');
+            cart = [];
+            total = 0;
+            updateCartDisplay();
+        }
+
+        // 載入菜單
+        function loadMenu() {
+            const menu = JSON.parse(localStorage.getItem('menu') || '[]');
+            const sakeContainer = document.getElementById('sake-container');
+            const beerContainer = document.getElementById('beer-container');
+            const fruitWineContainer = document.getElementById('fruit-wine-container');
+            const whiskyContainer = document.getElementById('whisky-container');
+            const wineContainer = document.getElementById('wine-container');
+            const drinksContainer = document.getElementById('drinks-container');
+            const foodContainer = document.getElementById('food-container');
+            
+            sakeContainer.innerHTML = '';
+            beerContainer.innerHTML = '';
+            fruitWineContainer.innerHTML = '';
+            whiskyContainer.innerHTML = '';
+            wineContainer.innerHTML = '';
+            drinksContainer.innerHTML = '';
+            foodContainer.innerHTML = '';
+
+            menu.forEach(item => {
+                const itemHtml = `
+                    <div class="menu-item ${item.soldOut ? 'sold-out' : ''}">
+                        <h3>${item.name}</h3>
+                        <div style="position: relative;">
+                            <img src="${item.image}" alt="${item.name}">
+                            ${item.soldOut ? '<div class="sold-out-label">售罄</div>' : ''}
+                        </div>
+                        ${item.soldOut ? '' : `
+                            <div class="quantity-control">
+                                <button class="quantity-btn" onclick="changeQuantity('${item.name}', -1)">-</button>
+                                <span id="quantity-${item.name}">0</span>
+                                <button class="quantity-btn" onclick="changeQuantity('${item.name}', 1)">+</button>
+                            </div>
+                            <button onclick="addToCart('${item.name}')">加入購物車</button>
+                        `}
+                    </div>
+                `;
+
+                if (item.category === '清酒') {
+                    sakeContainer.innerHTML += itemHtml;
+                } else if (item.category === '啤酒') {
+                    beerContainer.innerHTML += itemHtml;
+                } else if (item.category === '果酒') {
+                    fruitWineContainer.innerHTML += itemHtml;
+                } else if (item.category === '威士忌') {
+                    whiskyContainer.innerHTML += itemHtml;
+                } else if (item.category === '紅白酒') {
+                    wineContainer.innerHTML += itemHtml;
+                } else if (item.category === '無酒精類飲品') {
+                    drinksContainer.innerHTML += itemHtml;
+                } else if (item.category === '食物') {
+                    foodContainer.innerHTML += itemHtml;
+                }
+            });
+        }
+
+        // 頁面載入時執行
+        loadMenu();
+
+        function changeQuantity(name, change) {
+            if (!quantities[name]) {
+                quantities[name] = 0;
+            }
+            quantities[name] = Math.max(0, quantities[name] + change);
+            document.getElementById(`quantity-${name}`).textContent = quantities[name];
+            event.stopPropagation();
+        }
+
+        function addToCart(name) {
+            const quantity = quantities[name];
+            if (quantity > 0) {
+                cart.push({ name, quantity });
+                quantities[name] = 0;
+                document.getElementById(`quantity-${name}`).textContent = 0;
+                updateCartDisplay();
+            }
+        }
+
+        function updateCartDisplay() {
+            const cartItems = document.getElementById('cart-items');
+            const totalElement = document.getElementById('total');
+            
+            cartItems.innerHTML = cart.map(item => 
+                `<div>${item.name} x ${item.quantity}</div>`
+            ).join('');
+            
+            totalElement.textContent = total;
+        }
+
+        // 頁面載入時禁用雙擊縮放
+        document.addEventListener('DOMContentLoaded', function() {
+            // 禁用雙擊縮放
+            document.addEventListener('touchstart', function(event) {
+                if (event.touches.length > 1) {
+                    event.preventDefault();
+                }
+            }, { passive: false });
+
+            // 禁用雙指縮放
+            document.addEventListener('touchmove', function(event) {
+                if (event.touches.length > 1) {
+                    event.preventDefault();
+                }
+            }, { passive: false });
+        });
+    </script>
+</body>
+</html> 
